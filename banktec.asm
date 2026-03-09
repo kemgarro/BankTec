@@ -1,4 +1,4 @@
-; =============================================================================
+ad; =============================================================================
 ; BANKTEC - Sistema Bancario en Assembly 8086
 ; Curso: Paradigmas de Programacion - ITCR
 ; Archivo: banktec.asm
@@ -1343,6 +1343,135 @@ mainFin:
     mov  ah, 4Ch
     mov  al, 00h                ; codigo de salida 0 = exito
     int  21h
-main ENDP
+main ENDP  
+
+
+; ==========================================================
+; OPERACIONES BANCARIAS - IMPLEMENTADAS POR INTEGRANTE 2
+; ==========================================================
+
+; --- PROCEDIMIENTO: crear_cuenta ---
+; REGLAS: Validar cuenta repetida y limite de 10 cuentas (MAX_CUENTAS)
+crear_cuenta proc
+    push ax
+    push bx
+    push cx
+    push dx
+
+    ; 1. Pedir el numero de cuenta
+    call leerNumero          
+    
+    ; 2. VALIDAR CUENTA REPETIDA
+    call buscarCuentaPorNumero 
+    cmp si, 0FFFFh           
+    jne fin_crear_error      ; Si se encontro (SI != FFFFh), no se crea
+
+    ; 3. BUSCAR ESPACIO (Limite 10 cuentas)
+    lea si, arregloCuentas   
+    mov cx, MAX_CUENTAS      ; CX = 10 (Restriccion de cantidad)
+
+buscar_vacio:
+    cmp byte ptr [si + 36], 0 ; Offset 36 es CUENTA_ESTADO (0 = libre)
+    je espacio_encontrado
+    add si, 40               ; Tamaño de cada estructura de cuenta
+    loop buscar_vacio
+    jmp fin_crear_error      ; Si llega aqui, el banco esta lleno (10/10)
+
+espacio_encontrado:
+    ; 4. ACTUALIZAR DATOS DE CUENTA
+    mov [si + 0], ax         ; Guardar numero de cuenta
+    mov byte ptr [si + 36], 1 ; Cambiar estado a ACTIVA
+    mov word ptr [si + 32], 0 ; Inicializar saldo bajo en 0
+    mov word ptr [si + 34], 0 ; Inicializar saldo alto en 0
+
+fin_crear_ok:
+fin_crear_error:
+    pop dx
+    pop cx
+    pop bx
+    pop ax
+    ret
+crear_cuenta endp
+
+; --- PROCEDIMIENTO: depositar_dinero ---
+; REGLAS: Validar monto positivo y actualizar saldo
+depositar_dinero proc
+    push ax
+    push bx
+    push dx
+
+    call leerNumero
+    call buscarCuentaPorNumero
+    cmp si, 0FFFFh
+    je dep_fin
+
+    call verificarCuentaActiva
+    cmp al, 0                
+    jne dep_fin
+
+    ; 1. VALIDAR MONTO POSITIVO
+    call leerNumero
+    cmp ax, 0
+    jle dep_fin              ; Si es 0 o menos, se ignora
+
+    ; 2. ESCALAR Y ACTUALIZAR SALDO
+    mov bx, FACTOR_ESCALADO
+    mul bx                   ; DX:AX tiene el monto escalado
+    add [si + 32], ax        ; Suma parte baja
+    adc [si + 34], dx        ; Suma parte alta con acarreo
+
+dep_fin:
+    pop dx
+    pop bx
+    pop ax
+    ret
+depositar_dinero endp
+
+; --- PROCEDIMIENTO: retirar_dinero ---
+; REGLAS: Validar monto positivo y SALDO SUFICIENTE
+retirar_dinero proc
+    push ax
+    push bx
+    push dx
+
+    call leerNumero
+    call buscarCuentaPorNumero
+    cmp si, 0FFFFh
+    je ret_fin
+
+    call verificarCuentaActiva
+    cmp al, 0
+    jne ret_fin
+
+    ; 1. VALIDAR MONTO POSITIVO
+    call leerNumero
+    cmp ax, 0
+    jle ret_fin
+
+    mov bx, FACTOR_ESCALADO
+    mul bx                   ; DX:AX monto a retirar
+
+    ; 2. VALIDAR SALDO SUFICIENTE (Comparacion 32 bits)
+    cmp [si + 34], dx        ; Comparar parte alta
+    jb ret_error_fondos      
+    ja procede_resta         
+    cmp [si + 32], ax        ; Si altas son iguales, comparar bajas
+    jb ret_error_fondos
+
+procede_resta:
+    ; 3. ACTUALIZAR SALDO (Resta 32 bits)
+    sub [si + 32], ax        
+    sbb [si + 34], dx        
+
+    jmp ret_fin
+
+ret_error_fondos:
+    ; No se realiza la operacion si no alcanza el dinero
+ret_fin:
+    pop dx
+    pop bx
+    pop ax
+    ret
+retirar_dinero endp
 
 END main

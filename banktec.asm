@@ -205,6 +205,17 @@ msgSaldoMostrar DB 'Saldo: $'
 msgInicio       DB 'BankTec OK - Num: $'  ; prefijo prueba imprimirNumeroWord
 msgSaldoPrueba  DB 'Saldo: $'             ; prefijo prueba imprimirSaldoEscalado
 
+
+; --- Mensajes del menu principal ---
+msgMenuPrincipal DB 0Dh,0Ah,'====== BANKTEC MENU ======',0Dh,0Ah
+                 DB '1. Crear cuenta',0Dh,0Ah
+                 DB '2. Depositar dinero',0Dh,0Ah
+                 DB '3. Retirar dinero',0Dh,0Ah
+                 DB '4. Consultar saldo',0Dh,0Ah
+                 DB '5. Desactivar cuenta',0Dh,0Ah
+                 DB '6. Salir',0Dh,0Ah
+                 DB 'Seleccione una opcion: $'
+
 ; =============================================================================
 ; SEGMENTO DE CODIGO
 ; =============================================================================
@@ -1287,62 +1298,97 @@ desFin:
     ret
 desactivarCuenta ENDP
 
+
+menuPrincipal PROC
+
+menuLoop:
+
+    ; mostrar menu
+    lea dx, msgMenuPrincipal
+    call mostrarCadena
+
+    ; leer opcion
+    mov ah,01h
+    int 21h
+
+    ; salto de linea
+    lea dx, msgNuevaLinea
+    call mostrarCadena
+
+    ; convertir ASCII a numero
+    sub al,'0'
+
+    cmp al,1
+    je menuCrear
+
+    cmp al,2
+    je menuDepositar
+
+    cmp al,3
+    je menuRetirar
+
+    cmp al,4
+    je menuConsultar
+
+    cmp al,5
+    je menuDesactivar
+
+    cmp al,6
+    je menuSalir
+
+    jmp menuLoop
+
+
+menuCrear:
+    call crearCuenta
+    jmp menuLoop
+
+menuDepositar:
+    call depositarDinero
+    jmp menuLoop
+
+menuRetirar:
+    call retirarDinero
+    jmp menuLoop
+
+menuConsultar:
+    lea dx, msgPedirNroConsulta
+    call mostrarCadena
+    call leerNumero
+    mov bl,[codigoError]
+    cmp bl,0
+    jne menuLoop
+    call consultarSaldo
+    jmp menuLoop
+
+menuDesactivar:
+    call desactivarCuenta
+    jmp menuLoop
+
+menuSalir:
+    ret
+
+menuPrincipal ENDP
+
 ; =============================================================================
-; main - Harness de prueba de infraestructura (PERSONA 1)
-;
-; PROPOSITO : Valida que el nucleo del sistema (I/O numerica y conversion
-;             de saldo) funciona correctamente en EMU8086.
-;             NO contiene logica bancaria. NO tiene menu.
-;             Es el punto de entrada para que PERSONA 2 y PERSONA 3
-;             puedan reemplazar este bloque con sus modulos.
-;
-; PRUEBAS INCLUIDAS:
-;   1. imprimirNumeroWord     -> muestra 12345 en pantalla
-;   2. imprimirSaldoEscalado  -> muestra 1.2500 (DWORD 12500 = $1.25 x10000)
-;
-; Para agregar nuevas pruebas: insertar antes de mainFin.
+; main - Punto de entrada del sistema BANKTEC (PERSONA 3)
+; Inicia el segmento de datos y ejecuta el menu principal
 ; =============================================================================
 main PROC
-    ; --- Inicializar el segmento de datos ---
-    ; OBLIGATORIO en .model small: DS no apunta a .data hasta asignarlo.
+
+    ; Inicializar segmento de datos
     mov  ax, @data
     mov  ds, ax
 
-    ; =========================================================================
-    ; PRUEBA 1: imprimirNumeroWord
-    ; Esperado en pantalla: "BankTec OK - Num: 12345"
-    ; =========================================================================
-    lea  dx, msgInicio
-    call mostrarCadena          ; prefijo informativo
+    ; Iniciar menu del sistema
+    call menuPrincipal
 
-    mov  ax, 12345
-    call imprimirNumeroWord     ; imprime "12345"
-
-    lea  dx, msgNuevaLinea
-    call mostrarCadena
-
-    ; =========================================================================
-    ; PRUEBA 2: imprimirSaldoEscalado
-    ; DWORD = 12500 (= $1.2500 escalado x10000)
-    ; Esperado en pantalla: "Saldo: 1.2500"
-    ; =========================================================================
-    lea  dx, msgSaldoPrueba
-    call mostrarCadena          ; etiqueta "Saldo: "
-
-    mov  ax, 12500              ; word baja del DWORD (12500 < 65535: DX=0)
-    xor  dx, dx                 ; word alta = 0 (saldo < $6.5535 millones)
-    call imprimirSaldoEscalado  ; imprime "1.2500"
-
-    lea  dx, msgNuevaLinea
-    call mostrarCadena
-
-    ; =========================================================================
-    ; FIN: salida limpia via DOS
-    ; =========================================================================
+    ; Salida limpia del programa
 mainFin:
     mov  ah, 4Ch
-    mov  al, 00h                ; codigo de salida 0 = exito
+    mov  al, 00h
     int  21h
+
 main ENDP
 
 END main

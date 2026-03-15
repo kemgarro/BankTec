@@ -206,15 +206,34 @@ msgInicio       DB 'BankTec OK - Num: $'  ; prefijo prueba imprimirNumeroWord
 msgSaldoPrueba  DB 'Saldo: $'             ; prefijo prueba imprimirSaldoEscalado
 
 
-; --- Mensajes del menu principal ---
+; --- Mensajes del menu principal (CORREGIDO A 7 OPCIONES) ---
 msgMenuPrincipal DB 0Dh,0Ah,'====== BANKTEC MENU ======',0Dh,0Ah
                  DB '1. Crear cuenta',0Dh,0Ah
                  DB '2. Depositar dinero',0Dh,0Ah
                  DB '3. Retirar dinero',0Dh,0Ah
                  DB '4. Consultar saldo',0Dh,0Ah
-                 DB '5. Desactivar cuenta',0Dh,0Ah
-                 DB '6. Salir',0Dh,0Ah
+                 DB '5. Mostrar reporte general',0Dh,0Ah ; <-- Nueva opcion 5
+                 DB '6. Desactivar cuenta',0Dh,0Ah       ; <-- Ahora es 6
+                 DB '7. Salir',0Dh,0Ah                 ; <-- Ahora es 7
                  DB 'Seleccione una opcion: $'
+
+; --- Variables para los calculos del Reporte ---
+repActivas      dw 0        
+repInactivas    dw 0        
+repSaldoBajo    dw 0        
+repSaldoAlto    dw 0        
+repMaxBajo      dw 0        
+repMaxAlto      dw 0        
+repMinBajo      dw 0FFFFh   
+repMinAlto      dw 0FFFFh   
+
+; --- Textos del Reporte ---
+msgRepTitulo    db 13,10,"=== REPORTE GENERAL DEL BANCO ===",13,10,"$"
+msgRepActivas   db "Total cuentas activas: $"
+msgRepInactivas db "Total cuentas inactivas: $"
+msgRepSaldoTotal db "Saldo total del banco: $"
+msgRepMayor     db "Cuenta con mayor saldo: $"
+msgRepMenor     db "Cuenta con menor saldo: $"
 
 ; =============================================================================
 ; SEGMENTO DE CODIGO
@@ -1039,8 +1058,15 @@ depEscalar:
     ;   ADD: suma word baja, puede generar carry (CF = 1 si hay desbordamiento)
     ;   ADC: suma word alta + CF del paso anterior
     ; ==========================================================================
-    add  word ptr [si + CUENTA_SALDO],     ax   ; low word: saldo_low += monto_low
-    adc  word ptr [si + CUENTA_SALDO + 2], dx   ; high word: saldo_high += monto_high + CF
+    ; === BLOQUE 5: Sumar 32 bits (Monto DX:AX al Saldo de la cuenta) ===
+    mov bx, word ptr [si + 22]   ; Cargar saldo bajo actual en BX
+    mov cx, word ptr [si + 24]   ; Cargar saldo alto actual en CX
+    
+    add bx, ax                   ; Sumar montos bajos (AX es el nuevo deposito)
+    adc cx, dx                   ; Sumar montos altos + Carry (DX es el acarreo del mul)
+    
+    mov word ptr [si + 22], bx   ; Guardar resultado final bajo
+    mov word ptr [si + 24], cx   ; Guardar resultado final alto
 
     ; ==========================================================================
     ; BLOQUE 6: Mostrar resultado
@@ -1300,80 +1326,199 @@ desactivarCuenta ENDP
 
 
 menuPrincipal PROC
-
 menuLoop:
-
-    ; mostrar menu
     lea dx, msgMenuPrincipal
     call mostrarCadena
 
-    ; leer opcion
-    mov ah,01h
+    ; Leer opcion del teclado
+    mov ah, 01h
     int 21h
 
-    ; salto de linea
+    ; Salto de linea estético
     lea dx, msgNuevaLinea
     call mostrarCadena
 
-    ; convertir ASCII a numero
-    sub al,'0'
+    ; Convertir ASCII ('1') a valor numerico (1)
+    sub al, '0'
 
-    cmp al,1
-    je menuCrear
-
-    cmp al,2
-    je menuDepositar
-
-    cmp al,3
-    je menuRetirar
-
-    cmp al,4
-    je menuConsultar
-
-    cmp al,5
-    je menuDesactivar
-
-    cmp al,6
-    je menuSalir
-
+    ; Comparaciones para el salto a funciones
+    cmp al, 1
+    je mCrear
+    cmp al, 2
+    je mDep
+    cmp al, 3
+    je mRet
+    cmp al, 4
+    je mCon
+    cmp al, 5
+    je mRep
+    cmp al, 6
+    je mDes
+    cmp al, 7
+    je mSal
     jmp menuLoop
 
-
-menuCrear:
-    call crearCuenta
+mCrear: call crearCuenta
     jmp menuLoop
-
-menuDepositar:
-    call depositarDinero
+mDep:   call depositarDinero
     jmp menuLoop
-
-menuRetirar:
-    call retirarDinero
+mRet:   call retirarDinero
     jmp menuLoop
-
-menuConsultar:
+mCon:   ; Consultar saldo requiere pedir el numero antes
     lea dx, msgPedirNroConsulta
     call mostrarCadena
     call leerNumero
-    mov bl,[codigoError]
-    cmp bl,0
+    cmp byte ptr [codigoError], 0
     jne menuLoop
     call consultarSaldo
     jmp menuLoop
-
-menuDesactivar:
-    call desactivarCuenta
+mRep:   call mostrarReporteGeneral
     jmp menuLoop
-
-menuSalir:
-    ret
-
+mDes:   call desactivarCuenta
+    jmp menuLoop
+mSal:   ret
 menuPrincipal ENDP
 
-; =============================================================================
-; main - Punto de entrada del sistema BANKTEC (PERSONA 3)
-; Inicia el segmento de datos y ejecuta el menu principal
-; =============================================================================
+mostrarReporteGeneral PROC
+    push ax
+    push bx
+    push cx
+    push dx
+    push si
+    push bp
+
+    ; 1. LIMPIEZA INICIAL DE VARIABLES EN MEMORIA
+    mov word ptr [repActivas], 0
+    mov word ptr [repInactivas], 0
+    mov word ptr [repSaldoBajo], 0
+    mov word ptr [repSaldoAlto], 0
+    mov word ptr [repMaxBajo], 0
+    mov word ptr [repMaxAlto], 0
+    mov word ptr [repMinBajo], 0FFFFh
+    mov word ptr [repMinAlto], 0FFFFh
+
+    ; 2. ACUMULADORES BINARIOS EN REGISTROS (Aislamiento total)
+    ; BX = Parte baja del gran total (Low Word)
+    ; BP = Parte alta del gran total (High Word)
+    xor bx, bx
+    xor bp, bp
+
+    lea si, cuentas
+    mov cl, [cantidadCuentas]
+    xor ch, ch
+    jcxz imprimirResultados ; Si no hay cuentas, saltar a imprimir ceros
+
+bucleReporte:
+    push cx                 ; Guardar contador del loop
+
+    ; Verificar si la cuenta está activa (offset 26)
+    cmp byte ptr [si + 26], 1 
+    jne cuentaInactiva
+
+    ; --- PROCESO DE SUMA BINARIA DE 32 BITS ---
+    inc word ptr [repActivas]
+    
+    mov ax, [si + 22]       ; AX = Saldo Bajo de la cuenta actual
+    mov dx, [si + 24]       ; DX = Saldo Alto de la cuenta actual
+    
+    add bx, ax              ; Sumar partes bajas -> Genera Carry Flag (CF)
+    adc bp, dx              ; Sumar partes altas + CF (Propagación manual)
+    ; ------------------------------------------
+
+    ; Comparación para el Mayor Saldo
+    mov cx, [repMaxAlto]
+    cmp dx, cx
+    ja esNuevoMax
+    jb revisarMinimo
+    cmp ax, [repMaxBajo]
+    jbe revisarMinimo
+esNuevoMax:
+    mov [repMaxBajo], ax
+    mov [repMaxAlto], dx
+
+revisarMinimo:
+    ; Comparación para el Menor Saldo
+    mov cx, [repMinAlto]
+    cmp dx, cx
+    jb esNuevoMin
+    ja sigCuenta
+    cmp ax, [repMinBajo]
+    jae sigCuenta
+esNuevoMin:
+    mov [repMinBajo], ax
+    mov [repMinAlto], dx
+    jmp sigCuenta
+
+cuentaInactiva:
+    inc word ptr [repInactivas]
+
+sigCuenta:
+    pop cx                  ; Recuperar contador
+    add si, 28              ; Siguiente registro de cuenta
+    loop bucleReporte
+
+    ; 3. VOLCADO BINARIO A MEMORIA
+    mov [repSaldoBajo], bx
+    mov [repSaldoAlto], bp
+
+imprimirResultados:
+    ; --- 4. BLOQUE DE IMPRESIÓN ---
+    lea dx, msgRepTitulo
+    call mostrarCadena
+
+    ; Mostrar Activas
+    lea dx, msgRepActivas
+    call mostrarCadena
+    mov ax, [repActivas]
+    call imprimirNumeroWord
+    lea dx, msgNuevaLinea
+    call mostrarCadena
+
+    ; Mostrar Inactivas
+    lea dx, msgRepInactivas
+    call mostrarCadena
+    mov ax, [repInactivas]
+    call imprimirNumeroWord
+    lea dx, msgNuevaLinea
+    call mostrarCadena
+
+    ; --- IMPRESIÓN DEL SALDO TOTAL (70,000) ---
+    lea dx, msgRepSaldoTotal
+    call mostrarCadena
+    mov ax, [repSaldoBajo]  ; Parte baja (4464 si es 70k)
+    mov dx, [repSaldoAlto]  ; Parte alta (1 si es 70k)
+    call imprimirSaldoEscalado
+    lea dx, msgNuevaLinea
+    call mostrarCadena
+
+    ; Mostrar Mayor
+    lea dx, msgRepMayor
+    call mostrarCadena
+    mov ax, [repMaxBajo]
+    mov dx, [repMaxAlto]
+    call imprimirSaldoEscalado
+    lea dx, msgNuevaLinea
+    call mostrarCadena
+
+    ; Mostrar Menor
+    lea dx, msgRepMenor
+    call mostrarCadena
+    mov ax, [repMinBajo]
+    mov dx, [repMinAlto]
+    call imprimirSaldoEscalado
+    lea dx, msgNuevaLinea
+    call mostrarCadena
+
+repFinalizar:
+    pop bp
+    pop si
+    pop dx
+    pop cx
+    pop bx
+    pop ax
+    ret
+mostrarReporteGeneral ENDP
+
 main PROC
 
     ; Inicializar segmento de datos

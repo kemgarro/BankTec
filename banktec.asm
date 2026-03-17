@@ -189,7 +189,7 @@ msgDesErrYaInactiva DB 0Dh, 0Ah, 'ERROR: cuenta ya inactiva.$'          ; error 
 BUF_NUMERO_SIZE     EQU 7
 bufferNumero        DB BUF_NUMERO_SIZE DUP(0)   ; destino de numeroAAscii
 
-; Buffer temporal para dÃ­gitos en orden inverso (maximo 5 digitos de un WORD)
+; Buffer temporal para dÃƒÂ­gitos en orden inverso (maximo 5 digitos de un WORD)
 bufferDigitos       DB 5 DUP(0)
 
 msgMostrarNumero    DB 'Numero convertido: $'
@@ -1334,7 +1334,7 @@ menuLoop:
     mov ah, 01h
     int 21h
 
-    ; Salto de linea estético
+    ; Salto de linea estÃ©tico
     lea dx, msgNuevaLinea
     call mostrarCadena
 
@@ -1411,7 +1411,7 @@ mostrarReporteGeneral PROC
 bucleReporte:
     push cx                 ; Guardar contador del loop
 
-    ; Verificar si la cuenta está activa (offset 26)
+    ; Verificar si la cuenta estÃ¡ activa (offset 26)
     cmp byte ptr [si + 26], 1 
     jne cuentaInactiva
 
@@ -1422,10 +1422,10 @@ bucleReporte:
     mov dx, [si + 24]       ; DX = Saldo Alto de la cuenta actual
     
     add bx, ax              ; Sumar partes bajas -> Genera Carry Flag (CF)
-    adc bp, dx              ; Sumar partes altas + CF (Propagación manual)
+    adc bp, dx              ; Sumar partes altas + CF (PropagaciÃ³n manual)
     ; ------------------------------------------
 
-    ; Comparación para el Mayor Saldo
+    ; ComparaciÃ³n para el Mayor Saldo
     mov cx, [repMaxAlto]
     cmp dx, cx
     ja esNuevoMax
@@ -1437,7 +1437,7 @@ esNuevoMax:
     mov [repMaxAlto], dx
 
 revisarMinimo:
-    ; Comparación para el Menor Saldo
+    ; ComparaciÃ³n para el Menor Saldo
     mov cx, [repMinAlto]
     cmp dx, cx
     jb esNuevoMin
@@ -1461,8 +1461,14 @@ sigCuenta:
     mov [repSaldoBajo], bx
     mov [repSaldoAlto], bp
 
+    ; Si el total de cuentas activas es 0, borrar el offset MÃ­nimo fantasma (FFFFh).
+    cmp word ptr [repActivas], 0
+    jne imprimirResultados
+    mov word ptr [repMinBajo], 0
+    mov word ptr [repMinAlto], 0
+
 imprimirResultados:
-    ; --- 4. BLOQUE DE IMPRESIÓN ---
+    ; --- 4. BLOQUE DE IMPRESIÃ“N ---
     lea dx, msgRepTitulo
     call mostrarCadena
 
@@ -1482,7 +1488,7 @@ imprimirResultados:
     lea dx, msgNuevaLinea
     call mostrarCadena
 
-    ; --- IMPRESIÓN DEL SALDO TOTAL (70,000) ---
+    ; --- IMPRESIÃ“N DEL SALDO TOTAL (70,000) ---
     lea dx, msgRepSaldoTotal
     call mostrarCadena
     mov ax, [repSaldoBajo]  ; Parte baja (4464 si es 70k)
